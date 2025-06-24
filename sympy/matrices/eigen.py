@@ -1060,10 +1060,13 @@ def _jordan_form(M, calc_transform=True, *, chop=False):
 
     jordan_block
     """
-
+    from sympy import all_roots, eye, AlgebraicNumber
+    from collections import Counter
     if not M.is_square:
         raise NonSquareMatrixError("Only square matrices have Jordan forms")
 
+    a = None
+    eigenvalues={}
     mat        = M
     has_floats = M.has(Float)
 
@@ -1099,12 +1102,11 @@ def _jordan_form(M, calc_transform=True, *, chop=False):
 
         if (val, pow) in mat_cache:
             return mat_cache[(val, pow)]
-
         if (val, pow - 1) in mat_cache:
-            mat_cache[(val, pow)] = mat_cache[(val, pow - 1)].multiply(
-                    mat_cache[(val, 1)], dotprodsimp=None)
+            mat_cache[(val, pow)] = mat_cache[(val, pow - 1)] * mat_cache[(val, 1)]
         else:
-            mat_cache[(val, pow)] = (mat - val*M.eye(M.rows)).pow(pow)
+            eigen_scalar = a if a is not None else val
+            mat_cache[(val, pow)] = (mat - eigen_scalar*eye(M.rows)).to_DM(extension=True).pow(pow)
 
         return mat_cache[(val, pow)]
 
@@ -1117,7 +1119,7 @@ def _jordan_form(M, calc_transform=True, *, chop=False):
         # so use the rank-nullity theorem
         cols    = M.cols
         ret     = [0]
-        nullity = cols - eig_mat(val, 1).rank()
+        nullity = cols - eig_nullspace_matrix(val, 1, nullspace = False).rank()
         i       = 2
 
         while nullity != ret[-1]:
@@ -1125,8 +1127,7 @@ def _jordan_form(M, calc_transform=True, *, chop=False):
 
             if nullity == algebraic_multiplicity:
                 break
-
-            nullity  = cols - eig_mat(val, i).rank()
+            nullity = cols - eig_nullspace_matrix(val, i, nullspace = False).rank()
             i       += 1
 
             # Due to issues like #7146 and #15872, SymPy sometimes
@@ -1169,41 +1170,52 @@ def _jordan_form(M, calc_transform=True, *, chop=False):
             if pivots[-1] == len(small_basis):
                 return v
 
+    def eig_nullspace_matrix(eig, pow, nullspace = True):
+        char_mat = eig_mat(eig, pow)
+        char_mat = char_mat.nullspace().to_Matrix() if nullspace else char_mat.to_Matrix()
+        if a is not None:
+            char_mat = char_mat.subs(a, eig)
+        return char_mat.T if nullspace else char_mat
+
     # roots doesn't like Floats, so replace them with Rationals
     if has_floats:
         from sympy.simplify import nsimplify
         mat = mat.applyfunc(lambda x: nsimplify(x, rational=True))
-
-    # first calculate the jordan block structure
-    eigs = mat.eigenvals()
-
-    # Make sure that we have all roots in radical form
-    for x in eigs:
-        if x.has(CRootOf):
-            raise MatrixError(
-                "Jordan normal form is not implemented if the matrix have "
-                "eigenvalues in CRootOf form")
+    
+    # check if matrix has rational coefficients
+    has_rationals = all(x.is_rational for x in mat)
 
     # most matrices have distinct eigenvalues
     # and so are diagonalizable.  In this case, don't
     # do extra work!
-    if len(eigs.keys()) == mat.cols:
-        blocks     = sorted(eigs.keys(), key=default_sort_key)
+    
+    char_eq = mat.charpoly().as_expr()
+    if has_rationals:
+        roots = all_roots(char_eq)
+    else:
+        roots = all_roots(char_eq, extension=True) 
+    eigenvalues = dict(Counter(roots))
+    for i in eigenvalues.keys():
+        if not isinstance(i,int) and a is not None:
+            a = AlgebraicNumber(i, alias='a')
+            break
+
+    
+    if len(eigenvalues.keys()) == mat.cols:
+        blocks     = sorted(eigenvalues.keys(),key=default_sort_key)
         jordan_mat = mat.diag(*blocks)
 
         if not calc_transform:
             return restore_floats(jordan_mat)
 
-        jordan_basis = [eig_mat(eig, 1).nullspace()[0]
-                for eig in blocks]
+        jordan_basis = [eig_nullspace_matrix(eig, 1) for eig in blocks]
         basis_mat    = mat.hstack(*jordan_basis)
 
         return restore_floats(basis_mat, jordan_mat)
 
     block_structure = []
-
-    for eig in sorted(eigs.keys(), key=default_sort_key):
-        algebraic_multiplicity = eigs[eig]
+    for eig in sorted(eigenvalues.keys(), key=default_sort_key):
+        algebraic_multiplicity = eigenvalues[eig]
         chain = nullity_chain(eig, algebraic_multiplicity)
         block_sizes = blocks_from_nullity_chain(chain)
 
@@ -1245,23 +1257,25 @@ def _jordan_form(M, calc_transform=True, *, chop=False):
     # are linearly independent.
     jordan_basis = []
 
-    for eig in sorted(eigs.keys(), key=default_sort_key):
+    for eig in sorted(eigenvalues.keys(), key=default_sort_key):
         eig_basis = []
 
         for block_eig, size in block_structure:
             if block_eig != eig:
                 continue
+            y = eig_nullspace_matrix(eig, size)
+            z = eig_nullspace_matrix(eig, size-1)
+            null_big = [y.col(i) for i in range(y.cols)]
+            null_small = [z.col(i) for i in range(z.cols)]
 
-            null_big   = (eig_mat(eig, size)).nullspace()
-            null_small = (eig_mat(eig, size - 1)).nullspace()
 
             # we want to pick something that is in the big basis
             # and not the small, but also something that is independent
             # of any other generalized eigenvectors from a different
             # generalized eigenspace sharing the same eigenvalue.
             vec      = pick_vec(null_small + eig_basis, null_big)
-            new_vecs = [eig_mat(eig, i).multiply(vec, dotprodsimp=None)
-                    for i in range(size)]
+            new_vecs = [eig_nullspace_matrix(eig, i, nullspace = False).multiply(vec, dotprodsimp=None)
+                                for i in range(size)]           
 
             eig_basis.extend(new_vecs)
             jordan_basis.extend(reversed(new_vecs))
