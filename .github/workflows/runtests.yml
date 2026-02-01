@@ -18,9 +18,6 @@ jobs:
         with:
           # Checkout repo with full history
           fetch-depth: 0
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
       - run: pip install asv virtualenv packaging
       - run: git submodule add https://github.com/sympy/sympy_benchmarks.git
 
