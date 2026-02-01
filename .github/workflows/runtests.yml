@@ -447,8 +447,6 @@ jobs:
   # -------- Run benchmarks against master and previous release ---- #
 
   benchmarks:
-    needs: [doctests-latest, tests-latest]
-
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v6
