@@ -20,7 +20,7 @@ jobs:
 
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
+          python-version: '3.14'
       - run: python -m pip install --upgrade pip setuptools
 
       - run: pip install -r requirements-dev.txt
@@ -447,16 +447,18 @@ jobs:
   # -------- Run benchmarks against master and previous release ---- #
 
   benchmarks:
+    needs: [doctests-latest, tests-latest]
+
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v6
         with:
           # Checkout repo with full history
           fetch-depth: 0
-      # - uses: actions/setup-python@v6
-      #   with:
-      #     python-version: '3.12'
-      - run: python3 -m pip install asv virtualenv packaging
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - run: pip install asv virtualenv packaging
       - run: git submodule add https://github.com/sympy/sympy_benchmarks.git
 
         # Need to make sure we can access the branches from the main repo. We
