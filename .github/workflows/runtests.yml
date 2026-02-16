@@ -459,6 +459,7 @@ jobs:
         with:
           python-version: '3.14'
       - run: pip install asv virtualenv packaging
+      - run: pip install git+https://github.com/vprayag2005/asv_spyglass@add-filter-flags
       - run: git submodule add https://github.com/sympy/sympy_benchmarks.git
 
         # Need to make sure we can access the branches from the main repo. We
@@ -488,6 +489,51 @@ jobs:
         # we save all outputs as artifacts that can be downloaded from the
         # GitHub Actions summary page.
 
+      # Generate markdown report for PR comment using asv-spyglass
+      - name: Generate performance report
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "# 📊 Performance Benchmark Results" > performance_report.md
+          echo "" >> performance_report.md
+          
+          # Get ASV result files
+          ASV_RESULTS_DIR=".asv/results"
+          
+          # Find the result files for HEAD and upstream/master
+          HEAD_RESULT=$(find $ASV_RESULTS_DIR -name "*.json" -path "*/$(git rev-parse --short HEAD)-*.json" | head -1)
+          MASTER_RESULT=$(find $ASV_RESULTS_DIR -name "*.json" -path "*/$(git rev-parse --short upstream/master)-*.json" | head -1)
+          BENCHMARKS_JSON="sympy_benchmarks/benchmarks.json"
+          
+          # Run asv-spyglass compare to get changed benchmarks
+          if [ -f "$HEAD_RESULT" ] && [ -f "$MASTER_RESULT" ] && [ -f "$BENCHMARKS_JSON" ]; then
+            asv-spyglass compare "$MASTER_RESULT" "$HEAD_RESULT" "$BENCHMARKS_JSON" --only-changed >> performance_report.md || echo "No significant changes detected." >> performance_report.md
+          else
+            echo "⚠️ Could not generate comparison - result files not found" >> performance_report.md
+          fi
+          
+          # Check if we have actual benchmark data (more than just the header)
+          if [ $(wc -l < performance_report.md) -gt 3 ]; then
+            echo "HAS_CHANGES=true" >> $GITHUB_ENV
+          else
+            echo "HAS_CHANGES=false" >> $GITHUB_ENV
+          fi
+
+      # Post comment only if there are changes
+      - name: Comment PR with benchmark results
+        if: github.event_name == 'pull_request' && env.HAS_CHANGES == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('performance_report.md', 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: report
+            });
+
       - name: Upload results as artifacts
         uses: actions/upload-artifact@v6
         with:
@@ -497,3 +543,4 @@ jobs:
             pr_vs_master_changed.txt
             master_vs_release.txt
             master_vs_release_changed.txt
+            performance_report.md
