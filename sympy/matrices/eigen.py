@@ -199,6 +199,8 @@ def _eigenvals(M,
     it may return eigenvalues in the form of
     :class:`sympy.polys.rootoftools.ComplexRootOf`.
     """
+    import time
+    time.sleep(0.5)
     if not M:
         if multiple:
             return []
