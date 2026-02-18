@@ -7,7 +7,7 @@
 # ------------------------------------------------------------------ #
 
 name: test
-on: [push, pull_request]
+on: [pull_request]
 jobs:
 
   # -------------------- Code quality ------------------------------ #
@@ -459,6 +459,7 @@ jobs:
         with:
           python-version: '3.14'
       - run: pip install asv virtualenv packaging
+      - run: pip install git+https://github.com/airspeed-velocity/asv_spyglass
       - run: git submodule add https://github.com/sympy/sympy_benchmarks.git
 
         # Need to make sure we can access the branches from the main repo. We
@@ -484,6 +485,45 @@ jobs:
       - run: asv compare upstream/master HEAD --config asv.conf.actions.json --factor 1.5 --only-changed | tee pr_vs_master_changed.txt
       - run: asv compare upstream/1.14 upstream/master --config asv.conf.actions.json --factor 1.5 | tee master_vs_release.txt
       - run: asv compare upstream/1.14 upstream/master --config asv.conf.actions.json --factor 1.5 --only-changed | tee master_vs_release_changed.txt
+
+       # Generate benchmark regression report and post as comment on the PR
+      - name: Generate benchmark regression report
+        if: github.event_name == 'pull_request'
+        run: |
+          # Find result files for master and HEAD
+          PREV_RESULT=$(find sympy_benchmarks/results -name "*$(git rev-parse --short=8 upstream/master)*.json" | head -1)
+          HEAD_RESULT=$(find sympy_benchmarks/results -name "*$(git rev-parse --short=8 HEAD)*.json" | head -1)
+
+          # Run asv-spyglass compare and capture output
+          OUTPUT_REG=$(asv-spyglass compare "$PREV_RESULT" "$HEAD_RESULT" "sympy_benchmarks/results/benchmarks.json" --only-regressed 2>&1 || true)
+          OUTPUT="${OUTPUT_REG}"
+
+          # Only comment if output is non-empty
+          if [ -n "$OUTPUT" ]; then
+            echo "BENCHMARK_OUTPUT<<EOF" >> $GITHUB_ENV
+            echo "## ⚠️ Performance Alert ⚠️" >> $GITHUB_ENV
+            echo "" >> $GITHUB_ENV
+            echo "Possible performance regression was detected for benchmarks." >> $GITHUB_ENV
+            echo "Benchmark result of this commit is worse than the previous benchmark result." >> $GITHUB_ENV
+            echo "" >> $GITHUB_ENV
+            echo "$OUTPUT" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+            echo "HAS_OUTPUT=true" >> $GITHUB_ENV
+          else
+            echo "HAS_OUTPUT=false" >> $GITHUB_ENV
+          fi
+
+      - name: Post comment
+        if: github.event_name == 'pull_request' && env.HAS_OUTPUT == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: process.env.BENCHMARK_OUTPUT
+            });
 
         # we save all outputs as artifacts that can be downloaded from the
         # GitHub Actions summary page.
