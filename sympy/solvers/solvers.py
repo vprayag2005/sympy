@@ -360,7 +360,6 @@ def checksol(f, symbol, sol=None, **flags):
 def solve(f, *symbols, **flags):
     r"""
     Algebraically solves equations and systems of equations.
-
     Explanation
     ===========
 
@@ -822,6 +821,8 @@ def solve(f, *symbols, **flags):
 
     """
     from .inequalities import reduce_inequalities
+    import time
+    time.sleep(0.5)
 
     # checking/recording flags
     ###########################################################################

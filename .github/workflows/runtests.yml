@@ -7,7 +7,7 @@
 # ------------------------------------------------------------------ #
 
 name: test
-on: [push, pull_request]
+on: [pull_request]
 jobs:
 
 
@@ -66,15 +66,15 @@ jobs:
           
           # Run asv-spyglass compare and capture output
           OUTPUT_REG=$(asv-spyglass compare "$PREV_RESULT" "$HEAD_RESULT" "sympy_benchmarks/results/benchmarks.json" --only-regressed 2>&1 || true)
-          OUTPUT_IMP=$(asv-spyglass compare "$PREV_RESULT" "$HEAD_RESULT" "sympy_benchmarks/results/benchmarks.json" --only-improved 2>&1 || true)
-          OUTPUT="${OUTPUT_REG}
-          
-          ${OUTPUT_IMP}"
+          OUTPUT="${OUTPUT_REG}"
           
           # Only comment if output is non-empty
           if [ -n "$OUTPUT" ]; then
             echo "BENCHMARK_OUTPUT<<EOF" >> $GITHUB_ENV
-            echo "# 📊 Performance Benchmark Results" >> $GITHUB_ENV
+            echo "## ⚠️ Performance Alert ⚠️" >> $GITHUB_ENV
+            echo "" >> $GITHUB_ENV
+            echo "Possible performance regression was detected for benchmarks." >> $GITHUB_ENV
+            echo "Benchmark result of this commit is worse than the previous benchmark result." >> $GITHUB_ENV
             echo "" >> $GITHUB_ENV
             echo "$OUTPUT" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
